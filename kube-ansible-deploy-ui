@@ -1,14 +1,19 @@
 #!/bin/bash
 
-if [ ! -z "$DEBUG" ] && $DEBUG; then
+if [ ! -z "${DEBUG+x}" ] && $DEBUG; then
     set -ex
 fi
 
 # Check if whiptail is installed
 command -v whiptail >/dev/null 2>&1 || { echo >&2 "I require whiptail but it's not installed.  Aborting."; exit 1; }
 
-# BEGIN FUNCTIONS ===
-## base FUNCTIONS
+# BEGIN Helper variables
+#ERROR=false
+#ERROR_MSG=""
+# END Helper Variables
+
+# BEGIN FUNCTIONS
+## base FUNCTIONS ==============================================================
 init() {
     # Available variables
     KADUI_NO_STARTSCREEN=${KADUI_NO_STARTSCREEN:-false}
@@ -19,11 +24,11 @@ run() {
     showMainMenu
     showExitScreen
 }
-## show FUNCTIONS
+## show FUNCTIONS ==============================================================
 showStartScreen() {
     if ! $KADUI_NO_STARTSCREEN; then
         {
-            for ((i = 0 ; i <= 100 ; i+=35)); do
+            for ((i = 0 ; i <= 100 ; i+=50)); do
                 echo $i
                 sleep 1
             done
@@ -33,7 +38,7 @@ showStartScreen() {
 }
 showExitScreen() {
     if ! $KADUI_NO_ENDSCREEN; then
-        whiptail --title "You chose to cancel." --msgbox "Thanks for using kube-ansible-deploy-ui!\n\nExiting.." 20 50
+        whiptail --title "You chose to cancel." --msgbox "Thank you for using kube-ansible-deploy-ui!\n\nExiting.." 20 50
     fi
     return 0
 }
@@ -44,7 +49,7 @@ showMainMenu() {
     while true; do
         MENU_OPTION=$(whiptail --title "kube-ansible-deploy-ui Main Menu" --menu "Choose your option" --ok-button "Select" --cancel-button "Exit" 15 80 4 \
         "1" "Load Ansible Kubernetes deployment" \
-        "2" "Create new Kubernetes deployment" \
+        "2" "Create new Ansible Kubernetes deployment" \
         "3" "About" 3>&1 1>&2 2>&3)
         rc=$?
         if [ $rc = 0 ]; then
@@ -65,56 +70,119 @@ showMainMenu() {
     done
 }
 showAbout() {
-    whiptail --title "kube-ansible-deploy-ui About" --textbox /dev/stdin 20 80 <<<"$(echo "This script has been created by Alexander Trost aka galexrt.")"
+    whiptail --title "kube-ansible-deploy-ui About" --textbox /dev/stdin 20 80 <<<"This script has been created by Alexander Trost aka galexrt."
 }
 showCreateDeployment() {
-    local DEPLOYMENT_DIR=""
+    local DEPLOYMENT_DIR="$PWD"
     for VAR_NAME in DEPLOYMENT_DIR; do
         VALUE=$(whiptail --title "CreateDeployment: Insert $VAR_NAME" --inputbox "Please insert the correct value." 10 60 "${!VAR_NAME}" 3>&1 1>&2 2>&3)
         rc=$?
-        if [ $rc != 0 ] || [ -z "$VALUE" ]; then
+        if [ $rc != 0 ]; then
             showError "You chose cancel. Returning to main menu."
             return 0
         fi
         declare "$VAR_NAME"="$VALUE"
-        shift
     done
     {
         for ((i = 0 ; i <= 100 ; i+=100)); do
             sleep 1
-            createDeployment "$DEPLOYMENT_DIR"
+            createDeployment "$DEPLOYMENT_DIR" || return 1
         done
     } | whiptail --gauge "Please wait while the deployment is being created ..." 6 80 0
     {
-        for ((i = 0 ; i <= 100 ; i+=100)); do
-            sleep 1
-            tmpfile="$(mktemp /tmp/kube-ansible-deploy-ui.XXXXXX)"
-            cloneDeploymentRepo "$DEPLOYMENT_DIR" "$tmpfile"
-        done
-    } | whiptail --gauge "Please wait while the deployment is being cloned ..." 6 80 0
+        cloneDeploymentRepo "$DEPLOYMENT_DIR" || return 1
+    } | grep "[0-9]\{1,2\}%" | awk '{print $7}' | whiptail --gauge "Please wait while the deployment is being cloned ..." 6 80 0
+    showLoadDeployment "$DEPLOYMENT_DIR"
 }
-showLoadDeployment() {
-    s
-}
-## deployment FUNCTIONS
 createDeployment() {
-    echo $1
+    mkdir -p "$1" || { showError "Can't create deployment directory (path: \"$DEPLOYMENT_DIR\")."; return 1; }
 }
 cloneDeploymentRepo() {
-    git clone https://github.com/galexrt/kubernetes-ansible-deployment.git "$1" --progress 2>&1 | cat > "$2" &
+    git clone https://github.com/galexrt/kubernetes-ansible-deployment.git "$1" --progress 2>&1 || { showError "Can't clone the repository."; return 1; }
+}
+## showLoadDeployment ==========================================================
+showLoadDeployment() {
+    local DEPLOYMENT_DIR="$1"
+    if [ -z "$DEPLOYMENT_DIR" ]; then
+        DEPLOYMENT_DIR=$(whiptail --title "CreateDeployment: Insert DEPLOYMENT_DIR" --inputbox "Please insert the correct value." 10 60 "$PWD" 3>&1 1>&2 2>&3)
+        rc=$?
+        if [ $rc != 0 ]; then
+            showError "You chose cancel. Returning to main menu."
+            return 0
+        fi
+    fi
+    [ -d "$DEPLOYMENT_DIR" ] || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") not found."; return 1; }
+    [ -d "$DEPLOYMENT_DIR/.git" ] || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") is not a git repository."; return 1; }
+    # TODO load all options from group_vars/all.yml and so on
+    while true; do
+        MENU_OPTION=$(whiptail --title "LoadDeployment Menu" --menu "Choose your option" --ok-button "Select" --cancel-button "Return to Main Menu" 15 80 4 \
+        "1" "Show current deployment info" \
+        "2" "Change deployment info" \
+        "3" "Update deployment files" \
+        "4" "Update deployment files (hard)" \
+        "5" "Run Ansible Playbook" \
+        "6" "Quick Ansible Tasks" \
+        "7" "Delete Deployment Repository" 3>&1 1>&2 2>&3)
+        rc=$?
+        if [ $rc = 0 ]; then
+            case "$MENU_OPTION" in
+                1)
+                    showCurrentDeploymentInfo "$DEPLOYMENT_DIR"
+                ;;
+                2)
+                    changeDeploymentInfo "$DEPLOYMENT_DIR"
+                ;;
+                3)
+                    updateDeploymentRepo "$DEPLOYMENT_DIR"
+                ;;
+                4)
+                    updateDeploymentRepo "$DEPLOYMENT_DIR" true
+                ;;
+                5)
+                    runAnsiblePlaybook "$DEPLOYMENT_DIR"
+                ;;
+                6)
+                    showQuickAnsibleTasks "$DEPLOYMENT_DIR"
+                ;;
+                7)
+                    deleteDeploymentRepo "$DEPLOYMENT_DIR"
+                ;;
+            esac
+        else
+            return 0
+        fi
+    done
+}
+showCurrentDeploymentInfo() {
+    showError "This feature has not been implemented yet."
+    return 1
+}
+changeDeploymentInfo() {
+    showError "This feature has not been implemented yet."
+    return 1
 }
 updateDeploymentRepo() {
-    cd "$1" || { showError "Deployment repository not found."; exit 1; }
-    git pull --all --progress 2>&1 | cat > "$2" &
+    cd "$1" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") repository not found."; return 1; }
+    if [ ! -z "${2+x}" ] && $2; then
+        # TODO Add message box with cancel button before resetting
+        git reset --hard
+    fi
+    {
+        git pull --all --progress 2>&1 || return $?
+    } | grep "[0-9]\{1,2\}%" | awk '{print $7}' | whiptail --gauge "Please wait while the deployment is being cloned ..." 6 80 0
 }
-loadDeployment() {
-    s
+runAnsiblePlaybook() {
+    showError "This feature has not been implemented yet."
+    return 1
 }
-writeDeploymentInfo() {
-    s
+showQuickAnsibleTasks() {
+    showError "This feature has not been implemented yet."
+    return 1
 }
-## logic FUNCTIONS
-
+deleteDeploymentRepo() {
+    showError "This feature has not been implemented yet."
+    return 1
+}
 # /END FUNCTIONS
 
 init
