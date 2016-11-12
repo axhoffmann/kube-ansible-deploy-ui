@@ -14,12 +14,12 @@ command -v whiptail >/dev/null 2>&1 || { echo >&2 "I require whiptail but it's n
 
 # BEGIN FUNCTIONS
 ## base FUNCTIONS ==============================================================
-init() {
+appInit() {
     # Available variables
     KADUI_NO_STARTSCREEN=${KADUI_NO_STARTSCREEN:-false}
     KADUI_NO_ENDSCREEN=${KADUI_NO_ENDSCREEN:-false}
 }
-run() {
+appRun() {
     showStartScreen
     showMainMenu
     showExitScreen
@@ -33,6 +33,7 @@ showStartScreen() {
                 sleep 1
             done
         } | whiptail --gauge "Please wait while kube-ansible-deploy-ui is starting ..." 6 80 0
+        sleep 1
     fi
     return 0
 }
@@ -78,27 +79,18 @@ showCreateDeployment() {
         VALUE=$(whiptail --title "CreateDeployment: Insert $VAR_NAME" --inputbox "Please insert the correct value." 10 60 "${!VAR_NAME}" 3>&1 1>&2 2>&3)
         rc=$?
         if [ $rc != 0 ]; then
-            showError "You chose cancel. Returning to main menu."
+            showError "You chose to cancel. Returning to main menu."
             return 0
         fi
         declare "$VAR_NAME"="$VALUE"
     done
     {
         for ((i = 0 ; i <= 100 ; i+=100)); do
-            sleep 1
-            createDeployment "$DEPLOYMENT_DIR" || return 1
+            mkdir -p "$DEPLOYMENT_DIR" || { showError "Can't create deployment directory (path: \"$DEPLOYMENT_DIR\")."; return 1; }
         done
     } | whiptail --gauge "Please wait while the deployment is being created ..." 6 80 0
-    {
-        cloneDeploymentRepo "$DEPLOYMENT_DIR" || return 1
-    } | grep "[0-9]\{1,2\}%" | awk '{print $7}' | whiptail --gauge "Please wait while the deployment is being cloned ..." 6 80 0
+    downloadBinaries "$DEPLOYMENT_DIR" || return 0
     showLoadDeployment "$DEPLOYMENT_DIR"
-}
-createDeployment() {
-    mkdir -p "$1" || { showError "Can't create deployment directory (path: \"$DEPLOYMENT_DIR\")."; return 1; }
-}
-cloneDeploymentRepo() {
-    git clone https://github.com/galexrt/kubernetes-ansible-deployment.git "$1" --progress 2>&1 || { showError "Can't clone the repository."; return 1; }
 }
 ## showLoadDeployment ==========================================================
 showLoadDeployment() {
@@ -107,22 +99,22 @@ showLoadDeployment() {
         DEPLOYMENT_DIR=$(whiptail --title "CreateDeployment: Insert DEPLOYMENT_DIR" --inputbox "Please insert the correct value." 10 60 "$PWD" 3>&1 1>&2 2>&3)
         rc=$?
         if [ $rc != 0 ]; then
-            showError "You chose cancel. Returning to main menu."
+            showError "You chose to cancel. Returning to main menu."
             return 0
         fi
     fi
     [ -d "$DEPLOYMENT_DIR" ] || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") not found."; return 1; }
-    [ -d "$DEPLOYMENT_DIR/.git" ] || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") is not a git repository."; return 1; }
     # TODO load all options from group_vars/all.yml and so on
     while true; do
-        MENU_OPTION=$(whiptail --title "LoadDeployment Menu" --menu "Choose your option" --ok-button "Select" --cancel-button "Return to Main Menu" 15 80 4 \
+        MENU_OPTION=$(whiptail --title "LoadDeployment Menu" --menu "Choose your option" --ok-button "Select" --cancel-button "Return to Main Menu" 15 80 9 \
         "1" "Show current deployment info" \
         "2" "Change deployment info" \
-        "3" "Update deployment files" \
-        "4" "Update deployment files (hard)" \
-        "5" "Run Ansible Playbook" \
+        "3" "Update deployment repository files" \
+        "4" "Update deployment repository files (hard)" \
+        "5" "Download/Update binaries (Kubernetes, etc.)" \
         "6" "Quick Ansible Tasks" \
-        "7" "Delete Deployment Repository" 3>&1 1>&2 2>&3)
+        "7" "Run Ansible Playbook" \
+        "8" "Delete Deployment Repository" 3>&1 1>&2 2>&3)
         rc=$?
         if [ $rc = 0 ]; then
             case "$MENU_OPTION" in
@@ -139,12 +131,15 @@ showLoadDeployment() {
                     updateDeploymentRepo "$DEPLOYMENT_DIR" true
                 ;;
                 5)
-                    runAnsiblePlaybook "$DEPLOYMENT_DIR"
+                    downloadBinaries "$DEPLOYMENT_DIR"
                 ;;
                 6)
                     showQuickAnsibleTasks "$DEPLOYMENT_DIR"
                 ;;
                 7)
+                    runAnsiblePlaybook "$DEPLOYMENT_DIR"
+                ;;
+                8)
                     deleteDeploymentRepo "$DEPLOYMENT_DIR"
                 ;;
             esac
@@ -153,39 +148,181 @@ showLoadDeployment() {
         fi
     done
 }
+helperGetCurrentDeploymentInfo() {
+    local DEPLOYMENT_DIR="$1"
+    cd "$DEPLOYMENT_DIR" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") repository/directory not found."; return 1; }
+    # TODO grep through the inventory/group_vars/all.yml
+    showError "This feature has not been implemented yet."
+    return 1
+}
 showCurrentDeploymentInfo() {
+    local DEPLOYMENT_DIR="$1"
+    cd "$DEPLOYMENT_DIR" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") repository/directory not found."; return 1; }
+    # TODO helperGetCurrentDeploymentInfo
     showError "This feature has not been implemented yet."
     return 1
 }
 changeDeploymentInfo() {
+    local DEPLOYMENT_DIR="$1"
+    cd "$DEPLOYMENT_DIR" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") repository/directory not found."; return 1; }
     showError "This feature has not been implemented yet."
     return 1
+    while true; do
+        return 0
+    done
 }
 updateDeploymentRepo() {
-    cd "$1" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") repository not found."; return 1; }
+    local DEPLOYMENT_DIR="$1"
+    cd "$DEPLOYMENT_DIR" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") repository/directory not found."; return 1; }
     if [ ! -z "${2+x}" ] && $2; then
-        # TODO Add message box with cancel button before resetting
+        whiptail --title "Are you sure you want to hard reset?" --yesno "Choose Yes or No." 10 60 || { showError "Aborted updateDeploymentRepo with hard reset."; return 0; }
         git reset --hard
     fi
     {
         git pull --all --progress 2>&1 || return $?
-    } | grep "[0-9]\{1,2\}%" | awk '{print $7}' | whiptail --gauge "Please wait while the deployment is being cloned ..." 6 80 0
+    } | grep "[0-9]\{1,2\}%" | awk '{print $7}' | whiptail --gauge "Please wait while the deployment is being pulled ..." 6 80 0
 }
-runAnsiblePlaybook() {
-    showError "This feature has not been implemented yet."
-    return 1
+downloadBinaries() {
+    local DEPLOYMENT_DIR="$1"
+    cd "$DEPLOYMENT_DIR" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") repository/directory not found."; return 1; }
+    whiptail --title "Are you sure you want to download about 1Gig of Kubernetes binaries?" --yesno "Choose Yes or No." 10 60 || { showError "Aborted downloadBinaries due to user input."; return 0; }
+    local KUBERNETES_VERSION="1.4.6"
+    for VAR_NAME in KUBERNETES_VERSION; do
+        VALUE=$(whiptail --title "CreateDeployment: Insert $VAR_NAME" --inputbox "Please insert the correct value." 10 60 "${!VAR_NAME}" 3>&1 1>&2 2>&3)
+        rc=$?
+        if [ $rc != 0 ]; then
+            showError "You chose to cancel. Returning to main menu."
+            return 0
+        fi
+        [ ! -z "$VALUE" ] || { showError "Empty value for key \"$VAR_NAME\" in downloadBinaries given."; return 1; }
+        declare "$VAR_NAME"="$VALUE"
+    done
+    if [ ! -f "$DEPLOYMENT_DIR/kubernetes-v$KUBERNETES_VERSION.tar.gz" ]; then
+        wget --progress=dot "https://github.com/kubernetes/kubernetes/releases/download/v$KUBERNETES_VERSION/kubernetes.tar.gz" \
+            -O "$DEPLOYMENT_DIR/kubernetes-v$KUBERNETES_VERSION.tar.gz" 2>&1 | \
+            grep "%" | sed -u -e "s,\.,,g" | awk '{print $2}' | sed -u -e "s,\%,,g" | \
+            whiptail --gauge "Please wait while Kubernetes-v$KUBERNETES_VERSION.tar.gz is being downloaded and extracted ..." 6 80 0
+    fi
+    if [ -d "$DEPLOYMENT_DIR/kubernetes/" ] && whiptail --title "Are you sure you want to delete the existing \"kubernetes/\" directory?" --yesno "Choose Yes or No." 10 60; then
+        rm -rf "$DEPLOYMENT_DIR/kubernetes/"
+    fi
+    tar xvfz "$DEPLOYMENT_DIR/kubernetes-v$KUBERNETES_VERSION.tar.gz"
+    if [ ! -d "$DEPLOYMENT_DIR/kubernetes/contrib/.git" ]; then
+        rm -rf "$DEPLOYMENT_DIR/kubernetes/contrib" || { showError "Error removing \"$DEPLOYMENT_DIR/kubernetes/contrib\"."; return 1; }
+        {
+            git clone https://github.com/kubernetes/contrib.git "$DEPLOYMENT_DIR/kubernetes/contrib" --progress 2>&1 || { showError "Can't clone the \"kubernetes/contrib\" repository."; return 1; }
+        } | grep "[0-9]\{1,2\}%" | awk '{print $7}' | whiptail --gauge "Please wait while the \"kubernetes/contrib\" repo is being cloned ..." 6 80 0
+    else
+        cd "$DEPLOYMENT_DIR/kubernetes/contrib" || { showError "Can't access contrib directory"; return 1; }
+        whiptail --title "Are you sure you want to hard reset the contrib directory?" --yesno "Choose Yes or No." 10 60 || { showError "Aborted contrib directory hard reset."; return 0; }
+        git reset --hard || { showError "Error git resetting \"kubernetes/contrib\" repo."; return 1; }
+        {
+            git pull --all --progress 2>&1 || return $?
+        } | grep "[0-9]\{1,2\}%" | awk '{print $7}' | whiptail --gauge "Please wait while the contrib repo is being pulled/updated ..." 6 80 0
+    fi
+
+    if [ ! -d "$DEPLOYMENT_DIR/kubernetes/contrib/ansible/.git" ]; then
+        rm -rf "$DEPLOYMENT_DIR/kubernetes/contrib/ansible" || { showError "Error removing \"$DEPLOYMENT_DIR/kubernetes/contrib/ansible\"."; return 1; }
+        {
+            git clone https://github.com/galexrt/kubernetes-ansible-deployment.git "$DEPLOYMENT_DIR/kubernetes/contrib/ansible" --progress 2>&1 || { showError "Can't clone the \"galexrt/kubernetes-ansible-deployment\" repository."; return 1; }
+        } | grep "[0-9]\{1,2\}%" | awk '{print $7}' | whiptail --gauge "Please wait while the \"galexrt/kubernetes-ansible-deployment\" repo is being cloned ..." 6 80 0
+    else
+        cd "$DEPLOYMENT_DIR/kubernetes/contrib/ansible" || { showError "Can't access contrib directory"; return 1; }
+        whiptail --title "Are you sure you want to hard reset the contrib directory?" --yesno "Choose Yes or No." 10 60 || { showError "Aborted contrib/ansible directory hard reset."; return 0; }
+        git reset --hard || { showError "Error git resetting \"galexrt/kubernetes-ansible-deployment\" repo."; return 1; }
+        {
+            git pull --all --progress 2>&1 || return $?
+        } | grep "[0-9]\{1,2\}%" | awk '{print $7}' | whiptail --gauge "Please wait while the galexrt/kubernetes-ansible-deployment repo is being pulled/updated ..." 6 80 0
+    fi
+
+    # Extract kubernetes tar and co.
+    cd "$DEPLOYMENT_DIR/kubernetes/server" || { showError "Can't enter directory (path: \"$DEPLOYMENT_DIR/kubernetes/server\")."; return 1; }
+    tar xvfz "$DEPLOYMENT_DIR/kubernetes/server/kubernetes-server-linux-amd64.tar.gz"
+    tar xvfz "$DEPLOYMENT_DIR/kubernetes/server/kubernetes-salt.tar.gz"
+    cp -r "$DEPLOYMENT_DIR/kubernetes/server/kubernetes/saltbase" "$DEPLOYMENT_DIR/kubernetes/cluster"
+    # Create kubernetes binary folder
+    mkdir -p "$DEPLOYMENT_DIR/kubernetes/_output/local/go"
+    cp -r "$DEPLOYMENT_DIR/kubernetes/server/kubernetes/server/bin" "$DEPLOYMENT_DIR/kubernetes/_output/local/go"
+    whiptail --title "Are you sure you want to download about 100MB of etcd and network plugin binaries for offline installtion?" --yesno "Choose Yes or No." 10 60 || { showError "Aborted downloadBinaries due to user input."; return 0; }
+    local ETCD_VERSION="3.0.14" NETWORK_PLUGIN="flannel" NETWORK_PLUGIN_VERSION="0.6.2"
+    for VAR_NAME in ETCD_VERSION NETWORK_PLUGIN NETWORK_PLUGIN_VERSION; do
+        VALUE=$(whiptail --title "CreateDeployment: Insert $VAR_NAME" --inputbox "Please insert the correct value." 10 60 "${!VAR_NAME}" 3>&1 1>&2 2>&3)
+        rc=$?
+        if [ $rc != 0 ]; then
+            showError "You chose to cancel. Returning to main menu."
+            return 0
+        fi
+        [ ! -z "$VALUE" ] || { showError "Empty value for key \"$VAR_NAME\" in downloadBinaries given."; return 1; }
+        declare "$VAR_NAME"="$VALUE"
+    done
+    if [ ! -f "$DEPLOYMENT_DIR/kubernetes/etcd-v$ETCD_VERSION-linux-amd64.tar.gz" ]; then
+        wget --progress=dot "https://github.com/coreos/etcd/releases/download/v$ETCD_VERSION/etcd-v$ETCD_VERSION-linux-amd64.tar.gz" \
+            -O "$DEPLOYMENT_DIR/kubernetes/etcd-v$ETCD_VERSION-linux-amd64.tar.gz" 2>&1 | \
+            grep "%" | sed -u -e "s,\.,,g" | awk '{print $2}' | sed -u -e "s,\%,,g" | \
+            whiptail --gauge "Please wait while Etcd tar is being downloaded and extracted ..." 6 80 0
+    fi
+    case "$NETWORK_PLUGIN" in
+        flannel)
+            if [ ! -f "$DEPLOYMENT_DIR/kubernetes/flannel-v$NETWORK_PLUGIN_VERSION-linux-amd64.tar.gz" ]; then
+                wget --progress=dot "https://github.com/coreos/flannel/releases/download/v$NETWORK_PLUGIN_VERSION/flannel-v$NETWORK_PLUGIN_VERSION-linux-amd64.tar.gz" \
+                    -O "$DEPLOYMENT_DIR/kubernetes/flannel-v$NETWORK_PLUGIN_VERSION-linux-amd64.tar.gz" 2>&1 | \
+                    grep "%" | sed -u -e "s,\.,,g" | awk '{print $2}' | sed -u -e "s,\%,,g" | \
+                    whiptail --gauge "Please wait while Flannel tar is being downloaded and extracted ..." 6 80 0
+            fi
+        ;;
+        *)
+            showError "Network plugin \"$NETWORK_PLUGIN\" not supported!"
+            return 1
+        ;;
+    esac
 }
 showQuickAnsibleTasks() {
+    local DEPLOYMENT_DIR="$1"
+    cd "$DEPLOYMENT_DIR" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") repository/directory not found."; return 1; }
+    while true; do
+        MENU_OPTION=$(whiptail --title "LoadDeployment Menu" --menu "Choose your option" --ok-button "Select" --cancel-button "Return to Main Menu" 15 80 2 \
+        "1" "Deploy full cluster" \
+        "2" "Update kubernetes master and nodes" 3>&1 1>&2 2>&3)
+        rc=$?
+        if [ $rc = 0 ]; then
+            ANSIBLE_ARGS=$(whiptail --title "Insert Ansible arguments for the run" --inputbox "Please insert valid Ansible arguments." 10 60 -- "-vv" 3>&1 1>&2 2>&3)
+            case "$MENU_OPTION" in
+                1)
+                    runAnsiblePlaybook "$DEPLOYMENT_DIR" "deploy-cluster.yml" "$ANSIBLE_ARGS"
+                ;;
+                2)
+                    runAnsiblePlaybook "$DEPLOYMENT_DIR" "deploy-master.yml" "$ANSIBLE_ARGS"
+                    runAnsiblePlaybook "$DEPLOYMENT_DIR" "deploy-node.yml" "$ANSIBLE_ARGS"
+                ;;
+            esac
+        else
+            return 0
+        fi
+    done
+}
+runAnsiblePlaybook() {
+    local DEPLOYMENT_DIR="$1"
+    cd "$DEPLOYMENT_DIR" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") repository/directory not found."; return 1; }
+    local ANSIBLE_PLAYBOOK="$2"
+    local ANSIBLE_ARGS="$3"
+    cd "$DEPLOYMENT_DIR" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") directory not exists."; return 1; }
+    cd "$DEPLOYMENT_DIR/kubernetes/contrib/ansible" || {
+        showError "Can't find the \"kubernetes/contrib/ansible\" folder in your Deployment directory (path: \"$DEPLOYMENT_DIR\"). Have you run download binaries option?"
+        downloadBinaries "$DEPLOYMENT_DIR" || return 1
+    }
+    # TODO
     showError "This feature has not been implemented yet."
     return 1
 }
 deleteDeploymentRepo() {
-    showError "This feature has not been implemented yet."
-    return 1
+    local DEPLOYMENT_DIR="$1"
+    cd "$DEPLOYMENT_DIR" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") repository/directory not found."; return 1; }
+    # TODO Add "Are you sure modal you want to delete the deployment?" dialog
+    rm -rf "$DEPLOYMENT_DIR"
 }
 # /END FUNCTIONS
 
-init
-run
+appInit
+appRun
 
 exit 0

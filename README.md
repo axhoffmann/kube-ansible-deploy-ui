@@ -7,3 +7,6 @@ A simple bash script for running and configuring Ansible Kubernetes deployments.
 * `bash`
 * `whiptail` - should be installed on most deb and rhel based systems
 * A POSIX compliant system that sets the `$PWD` variable
+
+# ToDo
+* Add support for different architectures
