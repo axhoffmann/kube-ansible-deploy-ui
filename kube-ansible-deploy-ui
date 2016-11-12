@@ -7,11 +7,6 @@ fi
 # Check if whiptail is installed
 command -v whiptail >/dev/null 2>&1 || { echo >&2 "I require whiptail but it's not installed.  Aborting."; exit 1; }
 
-# BEGIN Helper variables
-#ERROR=false
-#ERROR_MSG=""
-# END Helper Variables
-
 # BEGIN FUNCTIONS
 ## base FUNCTIONS ==============================================================
 appInit() {
@@ -92,96 +87,6 @@ showCreateDeployment() {
     downloadBinaries "$DEPLOYMENT_DIR" || return 0
     showLoadDeployment "$DEPLOYMENT_DIR"
 }
-## showLoadDeployment ==========================================================
-showLoadDeployment() {
-    local DEPLOYMENT_DIR="$1"
-    if [ -z "$DEPLOYMENT_DIR" ]; then
-        DEPLOYMENT_DIR=$(whiptail --title "CreateDeployment: Insert DEPLOYMENT_DIR" --inputbox "Please insert the correct value." 10 60 "$PWD" 3>&1 1>&2 2>&3)
-        rc=$?
-        if [ $rc != 0 ]; then
-            showError "You chose to cancel. Returning to main menu."
-            return 0
-        fi
-    fi
-    [ -d "$DEPLOYMENT_DIR" ] || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") not found."; return 1; }
-    # TODO load all options from group_vars/all.yml and so on
-    while true; do
-        MENU_OPTION=$(whiptail --title "LoadDeployment Menu" --menu "Choose your option" --ok-button "Select" --cancel-button "Return to Main Menu" 15 80 9 \
-        "1" "Show current deployment info" \
-        "2" "Change deployment info" \
-        "3" "Update deployment repository files" \
-        "4" "Update deployment repository files (hard)" \
-        "5" "Download/Update binaries (Kubernetes, etc.)" \
-        "6" "Quick Ansible Tasks" \
-        "7" "Run Ansible Playbook" \
-        "8" "Delete Deployment Repository" 3>&1 1>&2 2>&3)
-        rc=$?
-        if [ $rc = 0 ]; then
-            case "$MENU_OPTION" in
-                1)
-                    showCurrentDeploymentInfo "$DEPLOYMENT_DIR"
-                ;;
-                2)
-                    changeDeploymentInfo "$DEPLOYMENT_DIR"
-                ;;
-                3)
-                    updateDeploymentRepo "$DEPLOYMENT_DIR"
-                ;;
-                4)
-                    updateDeploymentRepo "$DEPLOYMENT_DIR" true
-                ;;
-                5)
-                    downloadBinaries "$DEPLOYMENT_DIR"
-                ;;
-                6)
-                    showQuickAnsibleTasks "$DEPLOYMENT_DIR"
-                ;;
-                7)
-                    runAnsiblePlaybook "$DEPLOYMENT_DIR"
-                ;;
-                8)
-                    deleteDeploymentRepo "$DEPLOYMENT_DIR"
-                ;;
-            esac
-        else
-            return 0
-        fi
-    done
-}
-helperGetCurrentDeploymentInfo() {
-    local DEPLOYMENT_DIR="$1"
-    cd "$DEPLOYMENT_DIR" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") repository/directory not found."; return 1; }
-    # TODO grep through the inventory/group_vars/all.yml
-    showError "This feature has not been implemented yet."
-    return 1
-}
-showCurrentDeploymentInfo() {
-    local DEPLOYMENT_DIR="$1"
-    cd "$DEPLOYMENT_DIR" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") repository/directory not found."; return 1; }
-    # TODO helperGetCurrentDeploymentInfo
-    showError "This feature has not been implemented yet."
-    return 1
-}
-changeDeploymentInfo() {
-    local DEPLOYMENT_DIR="$1"
-    cd "$DEPLOYMENT_DIR" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") repository/directory not found."; return 1; }
-    showError "This feature has not been implemented yet."
-    return 1
-    while true; do
-        return 0
-    done
-}
-updateDeploymentRepo() {
-    local DEPLOYMENT_DIR="$1"
-    cd "$DEPLOYMENT_DIR" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") repository/directory not found."; return 1; }
-    if [ ! -z "${2+x}" ] && $2; then
-        whiptail --title "Are you sure you want to hard reset?" --yesno "Choose Yes or No." 10 60 || { showError "Aborted updateDeploymentRepo with hard reset."; return 0; }
-        git reset --hard
-    fi
-    {
-        git pull --all --progress 2>&1 || return $?
-    } | grep "[0-9]\{1,2\}%" | awk '{print $7}' | whiptail --gauge "Please wait while the deployment is being pulled ..." 6 80 0
-}
 downloadBinaries() {
     local DEPLOYMENT_DIR="$1"
     cd "$DEPLOYMENT_DIR" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") repository/directory not found."; return 1; }
@@ -259,7 +164,7 @@ downloadBinaries() {
         wget --progress=dot "https://github.com/coreos/etcd/releases/download/v$ETCD_VERSION/etcd-v$ETCD_VERSION-linux-amd64.tar.gz" \
             -O "$DEPLOYMENT_DIR/kubernetes/etcd-v$ETCD_VERSION-linux-amd64.tar.gz" 2>&1 | \
             grep "%" | sed -u -e "s,\.,,g" | awk '{print $2}' | sed -u -e "s,\%,,g" | \
-            whiptail --gauge "Please wait while Etcd tar is being downloaded and extracted ..." 6 80 0
+            whiptail --gauge "Please wait while etcd-v$ETCD_VERSION-linux-amd64.tar.gz is being downloaded ..." 6 80 0
     fi
     case "$NETWORK_PLUGIN" in
         flannel)
@@ -267,7 +172,7 @@ downloadBinaries() {
                 wget --progress=dot "https://github.com/coreos/flannel/releases/download/v$NETWORK_PLUGIN_VERSION/flannel-v$NETWORK_PLUGIN_VERSION-linux-amd64.tar.gz" \
                     -O "$DEPLOYMENT_DIR/kubernetes/flannel-v$NETWORK_PLUGIN_VERSION-linux-amd64.tar.gz" 2>&1 | \
                     grep "%" | sed -u -e "s,\.,,g" | awk '{print $2}' | sed -u -e "s,\%,,g" | \
-                    whiptail --gauge "Please wait while Flannel tar is being downloaded and extracted ..." 6 80 0
+                    whiptail --gauge "Please wait while flannel-v$NETWORK_PLUGIN_VERSION-linux-amd64.tar.gz is being downloaded ..." 6 80 0
             fi
         ;;
         *)
@@ -275,6 +180,96 @@ downloadBinaries() {
             return 1
         ;;
     esac
+}
+## showLoadDeployment ==========================================================
+showLoadDeployment() {
+    local DEPLOYMENT_DIR="$1"
+    if [ -z "$DEPLOYMENT_DIR" ]; then
+        DEPLOYMENT_DIR=$(whiptail --title "CreateDeployment: Insert DEPLOYMENT_DIR" --inputbox "Please insert the correct value." 10 60 "$PWD" 3>&1 1>&2 2>&3)
+        rc=$?
+        if [ $rc != 0 ]; then
+            showError "You chose to cancel. Returning to main menu."
+            return 0
+        fi
+    fi
+    [ -d "$DEPLOYMENT_DIR" ] || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") not found."; return 1; }
+    # TODO load all options from group_vars/all.yml and so on
+    while true; do
+        MENU_OPTION=$(whiptail --title "LoadDeployment Menu" --menu "Choose your option" --ok-button "Select" --cancel-button "Return to Main Menu" 15 80 9 \
+        "1" "Show current deployment info" \
+        "2" "Change deployment info" \
+        "3" "Update deployment repository files" \
+        "4" "Update deployment repository files (hard)" \
+        "5" "Download/Update binaries (Kubernetes, etc.)" \
+        "6" "Quick Ansible Tasks" \
+        "7" "Run Ansible Playbook" \
+        "8" "Delete Deployment Repository" 3>&1 1>&2 2>&3)
+        rc=$?
+        if [ $rc = 0 ]; then
+            case "$MENU_OPTION" in
+                1)
+                    showCurrentDeploymentInfo "$DEPLOYMENT_DIR"
+                ;;
+                2)
+                    changeDeploymentInfo "$DEPLOYMENT_DIR"
+                ;;
+                3)
+                    updateDeploymentRepo "$DEPLOYMENT_DIR"
+                ;;
+                4)
+                    updateDeploymentRepo "$DEPLOYMENT_DIR" true
+                ;;
+                5)
+                    downloadBinaries "$DEPLOYMENT_DIR"
+                ;;
+                6)
+                    showQuickAnsibleTasks "$DEPLOYMENT_DIR"
+                ;;
+                7)
+                    runAnsiblePlaybook "$DEPLOYMENT_DIR"
+                ;;
+                8)
+                    deleteDeploymentRepo "$DEPLOYMENT_DIR"
+                ;;
+            esac
+        else
+            return 0
+        fi
+    done
+}
+helperGetCurrentDeploymentInfo() {
+    local DEPLOYMENT_DIR="$1"
+    cd "$DEPLOYMENT_DIR" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") repository/directory not found."; return 1; }
+    # TODO grep through the inventory/group_vars/all.yml
+    showError "This feature has not been implemented yet."
+    return 1
+}
+showCurrentDeploymentInfo() {
+    local DEPLOYMENT_DIR="$1"
+    cd "$DEPLOYMENT_DIR" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") repository/directory not found."; return 1; }
+    showError "This feature has not been implemented yet."
+    return 1
+    # TODO iterate over helperGetCurrentDeploymentInfo
+}
+changeDeploymentInfo() {
+    local DEPLOYMENT_DIR="$1"
+    cd "$DEPLOYMENT_DIR" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") repository/directory not found."; return 1; }
+    showError "This feature has not been implemented yet."
+    return 1
+    while true; do
+        return 0
+    done
+}
+updateDeploymentRepo() {
+    local DEPLOYMENT_DIR="$1"
+    cd "$DEPLOYMENT_DIR" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") repository/directory not found."; return 1; }
+    if [ ! -z "${2+x}" ] && $2; then
+        whiptail --title "Are you sure you want to hard reset?" --yesno "Choose Yes or No." 10 60 || { showError "Aborted updateDeploymentRepo with hard reset."; return 0; }
+        git reset --hard
+    fi
+    {
+        git pull --all --progress 2>&1 || return $?
+    } | grep "[0-9]\{1,2\}%" | awk '{print $7}' | whiptail --gauge "Please wait while the deployment is being pulled ..." 6 80 0
 }
 showQuickAnsibleTasks() {
     local DEPLOYMENT_DIR="$1"
@@ -310,14 +305,15 @@ runAnsiblePlaybook() {
         showError "Can't find the \"kubernetes/contrib/ansible\" folder in your Deployment directory (path: \"$DEPLOYMENT_DIR\"). Have you run download binaries option?"
         downloadBinaries "$DEPLOYMENT_DIR" || return 1
     }
-    # TODO
-    showError "This feature has not been implemented yet."
-    return 1
+    INVENTORY_DIR="$DEPLOYMENT_DIR/kubernetes/contrib/ansible/inventory"
+    PLAYBOOKS_DIR="$DEPLOYMENT_DIR/kubernetes/contrib/ansible/playbooks"
+    inventory=${INVENTORY:-${INVENTORY_DIR}/inventory}
+    ansible-playbook -i ${inventory} "${PLAYBOOKS_DIR}/$ANSIBLE_PLAYBOOK" "$ANSIBLE_ARGS"
 }
 deleteDeploymentRepo() {
     local DEPLOYMENT_DIR="$1"
     cd "$DEPLOYMENT_DIR" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") repository/directory not found."; return 1; }
-    # TODO Add "Are you sure modal you want to delete the deployment?" dialog
+    whiptail --title "Are you sure you want to delete the deployment directory?" --yesno "Choose Yes or No." 10 60 || { showError "Aborted deleteDeploymentRepo on behalf of user input."; return 0; }
     rm -rf "$DEPLOYMENT_DIR"
 }
 # /END FUNCTIONS
