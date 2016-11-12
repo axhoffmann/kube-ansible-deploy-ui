@@ -195,9 +195,9 @@ showLoadDeployment() {
     [ -d "$DEPLOYMENT_DIR" ] || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") not found."; return 1; }
     # TODO load all options from group_vars/all.yml and so on
     while true; do
-        MENU_OPTION=$(whiptail --title "LoadDeployment Menu" --menu "Choose your option" --ok-button "Select" --cancel-button "Return to Main Menu" 15 80 9 \
-        "1" "Show current deployment info" \
-        "2" "Change deployment info" \
+        MENU_OPTION=$(whiptail --title "LoadDeployment Menu" --menu "Choose your option" --ok-button "Select" --cancel-button "Return to Main Menu" 15 80 8 \
+        "1" "Show current deployment variables" \
+        "2" "Show current inventory" \
         "3" "Update deployment repository files" \
         "4" "Update deployment repository files (hard)" \
         "5" "Download/Update binaries (Kubernetes, etc.)" \
@@ -208,10 +208,10 @@ showLoadDeployment() {
         if [ $rc = 0 ]; then
             case "$MENU_OPTION" in
                 1)
-                    showCurrentDeploymentInfo "$DEPLOYMENT_DIR"
+                    showCurrentDeploymentVars "$DEPLOYMENT_DIR"
                 ;;
                 2)
-                    changeDeploymentInfo "$DEPLOYMENT_DIR"
+                    showCurrentInventory "$DEPLOYMENT_DIR"
                 ;;
                 3)
                     updateDeploymentRepo "$DEPLOYMENT_DIR"
@@ -237,28 +237,27 @@ showLoadDeployment() {
         fi
     done
 }
-helperGetCurrentDeploymentInfo() {
+showCurrentDeploymentVars() {
     local DEPLOYMENT_DIR="$1"
     cd "$DEPLOYMENT_DIR" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") repository/directory not found."; return 1; }
-    # TODO grep through the inventory/group_vars/all.yml
-    showError "This feature has not been implemented yet."
-    return 1
+    [ -f "$DEPLOYMENT_DIR/kubernetes/contrib/ansible/inventory/group_vars/all.yml" ] || { showError "File \"kubernetes/contrib/ansible/inventory/group_vars/all.yml\" is missing. Have you run \"Download/Update binaries (Kubernetes, etc.)\"?"; return 1; }
+    vi "$DEPLOYMENT_DIR/kubernetes/contrib/ansible/inventory/group_vars/all.yml"
 }
-showCurrentDeploymentInfo() {
+showCurrentInventory() {
     local DEPLOYMENT_DIR="$1"
     cd "$DEPLOYMENT_DIR" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") repository/directory not found."; return 1; }
-    showError "This feature has not been implemented yet."
-    return 1
-    # TODO iterate over helperGetCurrentDeploymentInfo
-}
-changeDeploymentInfo() {
-    local DEPLOYMENT_DIR="$1"
-    cd "$DEPLOYMENT_DIR" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") repository/directory not found."; return 1; }
-    showError "This feature has not been implemented yet."
-    return 1
-    while true; do
-        return 0
-    done
+    [ -d "$DEPLOYMENT_DIR/kubernetes/contrib/ansible/inventory" ] || { showError "Directory \"kubernetes/contrib/ansible/inventory/\" is missing. Have you run \"Download/Update binaries (Kubernetes, etc.)\"?"; return 1; }
+    [ -f "$DEPLOYMENT_DIR/kubernetes/contrib/ansible/inventory/inventory" ] || cat <<EOF
+[masters]
+kube-master-test.example.com
+
+[etcd:children]
+masters
+
+[nodes]
+kube-minion-test-[1:2].example.com
+EOF
+    vi "$DEPLOYMENT_DIR/kubernetes/contrib/ansible/inventory/inventory"
 }
 updateDeploymentRepo() {
     local DEPLOYMENT_DIR="$1"
@@ -300,7 +299,12 @@ runAnsiblePlaybook() {
     cd "$DEPLOYMENT_DIR" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") repository/directory not found."; return 1; }
     local ANSIBLE_PLAYBOOK="$2"
     local ANSIBLE_ARGS="$3"
-    cd "$DEPLOYMENT_DIR" || { showError "Deployment (path: \"$DEPLOYMENT_DIR\") directory not exists."; return 1; }
+    if [ -z "$ANSIBLE_PLAYBOOK" ]; then
+        ANSIBLE_PLAYBOOK=$(whiptail --title "Insert Ansible playbook name to run for the run" --inputbox "The playbook must be available in the \"$DEPLOYMENT_DIR/kubernetes/contrib/ansible/playbooks/\" directory." 10 60 -- "deploy-cluster.yml" 3>&1 1>&2 2>&3)
+    fi
+    if [ -z "$ANSIBLE_ARGS" ]; then
+        ANSIBLE_ARGS=$(whiptail --title "Insert Ansible arguments for the run" --inputbox "Please insert valid Ansible arguments." 10 60 -- "-vv" 3>&1 1>&2 2>&3)
+    fi
     cd "$DEPLOYMENT_DIR/kubernetes/contrib/ansible" || {
         showError "Can't find the \"kubernetes/contrib/ansible\" folder in your Deployment directory (path: \"$DEPLOYMENT_DIR\"). Have you run download binaries option?"
         downloadBinaries "$DEPLOYMENT_DIR" || return 1
