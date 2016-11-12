@@ -309,10 +309,10 @@ runAnsiblePlaybook() {
         showError "Can't find the \"kubernetes/contrib/ansible\" folder in your Deployment directory (path: \"$DEPLOYMENT_DIR\"). Have you run download binaries option?"
         downloadBinaries "$DEPLOYMENT_DIR" || return 1
     }
-    INVENTORY_DIR="$DEPLOYMENT_DIR/kubernetes/contrib/ansible/inventory"
-    PLAYBOOKS_DIR="$DEPLOYMENT_DIR/kubernetes/contrib/ansible/playbooks"
-    inventory=${INVENTORY:-${INVENTORY_DIR}/inventory}
-    ansible-playbook -i ${inventory} "${PLAYBOOKS_DIR}/$ANSIBLE_PLAYBOOK" "$ANSIBLE_ARGS"
+    local INVENTORY_DIR="$DEPLOYMENT_DIR/kubernetes/contrib/ansible/inventory" \
+        PLAYBOOKS_DIR="$DEPLOYMENT_DIR/kubernetes/contrib/ansible/playbooks" \
+        inventory="${INVENTORY:-${INVENTORY_DIR}/inventory}"
+    ansible-playbook -i "${inventory}" "${PLAYBOOKS_DIR}/$ANSIBLE_PLAYBOOK" "$ANSIBLE_ARGS"
 }
 deleteDeploymentRepo() {
     local DEPLOYMENT_DIR="$1"
