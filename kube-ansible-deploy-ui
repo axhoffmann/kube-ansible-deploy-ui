@@ -1,0 +1,123 @@
+#!/bin/bash
+
+if [ ! -z "$DEBUG" ] && $DEBUG; then
+    set -ex
+fi
+
+# Check if whiptail is installed
+command -v whiptail >/dev/null 2>&1 || { echo >&2 "I require whiptail but it's not installed.  Aborting."; exit 1; }
+
+# BEGIN FUNCTIONS ===
+## base FUNCTIONS
+init() {
+    # Available variables
+    KADUI_NO_STARTSCREEN=${KADUI_NO_STARTSCREEN:-false}
+    KADUI_NO_ENDSCREEN=${KADUI_NO_ENDSCREEN:-false}
+}
+run() {
+    showStartScreen
+    showMainMenu
+    showExitScreen
+}
+## show FUNCTIONS
+showStartScreen() {
+    if ! $KADUI_NO_STARTSCREEN; then
+        {
+            for ((i = 0 ; i <= 100 ; i+=35)); do
+                echo $i
+                sleep 1
+            done
+        } | whiptail --gauge "Please wait while kube-ansible-deploy-ui is starting ..." 6 80 0
+    fi
+    return 0
+}
+showExitScreen() {
+    if ! $KADUI_NO_ENDSCREEN; then
+        whiptail --title "You chose to cancel." --msgbox "Thanks for using kube-ansible-deploy-ui!\n\nExiting.." 20 50
+    fi
+    return 0
+}
+showError() {
+    whiptail --title "An error occured" --msgbox "Message:\n$1" 20 50
+}
+showMainMenu() {
+    while true; do
+        MENU_OPTION=$(whiptail --title "kube-ansible-deploy-ui Main Menu" --menu "Choose your option" --ok-button "Select" --cancel-button "Exit" 15 80 4 \
+        "1" "Load Ansible Kubernetes deployment" \
+        "2" "Create new Kubernetes deployment" \
+        "3" "About" 3>&1 1>&2 2>&3)
+        rc=$?
+        if [ $rc = 0 ]; then
+            case "$MENU_OPTION" in
+                1)
+                showLoadDeployment
+                ;;
+                2)
+                showCreateDeployment
+                ;;
+                3)
+                showAbout
+                ;;
+            esac
+        else
+            return 0
+        fi
+    done
+}
+showAbout() {
+    whiptail --title "kube-ansible-deploy-ui About" --textbox /dev/stdin 20 80 <<<"$(echo "This script has been created by Alexander Trost aka galexrt.")"
+}
+showCreateDeployment() {
+    local DEPLOYMENT_DIR=""
+    for VAR_NAME in DEPLOYMENT_DIR; do
+        VALUE=$(whiptail --title "CreateDeployment: Insert $VAR_NAME" --inputbox "Please insert the correct value." 10 60 "${!VAR_NAME}" 3>&1 1>&2 2>&3)
+        rc=$?
+        if [ $rc != 0 ] || [ -z "$VALUE" ]; then
+            showError "You chose cancel. Returning to main menu."
+            return 0
+        fi
+        declare "$VAR_NAME"="$VALUE"
+        shift
+    done
+    {
+        for ((i = 0 ; i <= 100 ; i+=100)); do
+            sleep 1
+            createDeployment "$DEPLOYMENT_DIR"
+        done
+    } | whiptail --gauge "Please wait while the deployment is being created ..." 6 80 0
+    {
+        for ((i = 0 ; i <= 100 ; i+=100)); do
+            sleep 1
+            tmpfile="$(mktemp /tmp/kube-ansible-deploy-ui.XXXXXX)"
+            cloneDeploymentRepo "$DEPLOYMENT_DIR" "$tmpfile"
+        done
+    } | whiptail --gauge "Please wait while the deployment is being cloned ..." 6 80 0
+}
+showLoadDeployment() {
+    s
+}
+## deployment FUNCTIONS
+createDeployment() {
+    echo $1
+}
+cloneDeploymentRepo() {
+    git clone https://github.com/galexrt/kubernetes-ansible-deployment.git "$1" --progress 2>&1 | cat > "$2" &
+}
+updateDeploymentRepo() {
+    cd "$1" || { showError "Deployment repository not found."; exit 1; }
+    git pull --all --progress 2>&1 | cat > "$2" &
+}
+loadDeployment() {
+    s
+}
+writeDeploymentInfo() {
+    s
+}
+## logic FUNCTIONS
+
+# /END FUNCTIONS
+
+init
+run
+
+exit 0
